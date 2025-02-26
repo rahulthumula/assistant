@@ -5,6 +5,9 @@ from typing import Dict
 import uuid
 from rag import RAGAssistant
 import uvicorn
+from azure.search.documents.indexes import SearchIndexClient
+from azure.core.credentials import AzureKeyCredential
+from config import SEARCH_SERVICE_ENDPOINT, SEARCH_SERVICE_KEY
 
 app = FastAPI()
 rag_assistants: Dict[str, RAGAssistant] = {}
@@ -12,6 +15,20 @@ rag_assistants: Dict[str, RAGAssistant] = {}
 class Question(BaseModel):
     text: str
     user_id: str
+
+# Helper function to check if index exists
+async def index_exists(user_id: str):
+    try:
+        index_name = f"inventory-{user_id}"
+        index_client = SearchIndexClient(
+            endpoint=SEARCH_SERVICE_ENDPOINT,
+            credential=AzureKeyCredential(SEARCH_SERVICE_KEY)
+        )
+        indexes = list(index_client.list_index_names())
+        return index_name in indexes
+    except Exception as e:
+        print(f"Error checking index existence: {str(e)}")
+        return False
 
 @app.post("/initialize/{user_id}")
 async def initialize_user_rag(user_id: str):
@@ -27,9 +44,17 @@ async def initialize_user_rag(user_id: str):
 async def query_rag(question: Question):
     if question.user_id not in rag_assistants:
         try:
-            await initialize_user_rag(question.user_id)
+            # Check if index exists before initializing
+            if await index_exists(question.user_id):
+                rag_assistant = RAGAssistant(question.user_id)
+                # Make sure search client is initialized
+                if rag_assistant.vector_store.search_client is None:
+                    await rag_assistant.vector_store.connect_to_index()
+                rag_assistants[question.user_id] = rag_assistant
+            else:
+                await initialize_user_rag(question.user_id)
         except Exception as e:
-            raise HTTPException(status_code=404, detail=f"User {question.user_id} not found or initialization failed")
+            raise HTTPException(status_code=404, detail=f"User {question.user_id} not found or initialization failed: {str(e)}")
     
     try:
         rag_assistant = rag_assistants[question.user_id]

@@ -194,63 +194,16 @@ Specifications:
         
         return ", ".join(search_terms)
 
-
-    def _enhance_question(self, question):
-        """Enhance the user's question with additional context and terms."""
-        enhanced_question = question.lower()
-        
-        # Add category context if mentioned
-        if "dairy" in enhanced_question:
-            enhanced_question += " category:DAIRY"
-        elif "cheese" in enhanced_question:
-            enhanced_question += " category:DAIRY cheese product"
-        
-        # Add pricing context
-        if any(term in enhanced_question for term in ["cost", "price", "expensive", "cheap"]):
-            enhanced_question += " pricing cost per unit case price"
-        
-        # Add quantity context
-        if any(term in enhanced_question for term in ["quantity", "amount", "how many", "stock"]):
-            enhanced_question += " quantity in case total units available"
-        
-        return enhanced_question
-
     async def query(self, user_question, top_k=5):
-        enhanced_question = self._enhance_question(user_question)
-        question_embedding = await self.embedding_generator.generate_embedding(enhanced_question)
+        question_embedding = await self.embedding_generator.generate_embedding(user_question)
         search_results = await self.vector_store.search(question_embedding, top_k)
-        
-        context_items = []
-        for result in search_results:
-            # Only rely on the content field which we know exists
-            if 'content' in result:
-                content_parts = result['content'].split("\n\n")
-                relevant_parts = [part for part in content_parts 
-                                if part.startswith(("Product Overview", "Pricing Details", 
-                                                  "Quantity Information", "Raw Specifications"))]
-                context_items.extend(relevant_parts)
-            else:
-                print(f"Warning: Result missing content field: {result.keys()}")
-        
-        context = "\n\n".join(context_items)
-
         
         prompt = f"""You are an inventory assistant helping with questions about the user's inventory items.
 Base your answer only on the provided inventory data.
-
 Inventory Items:
-{context}
-
+{search_results}
 Question: {user_question}
-
-Please provide a detailed answer considering:
-1. Exact product names and specifications
-2. Precise pricing information when relevant
-3. Accurate quantity information
-4. Category and brand details when applicable
-
-If the question cannot be fully answered with the provided information, mention that explicitly.
-Focus on being accurate rather than comprehensive."""
+."""
         
         response = self.openai_client.chat.completions.create(
             model=OPENAI_MODEL,
@@ -259,7 +212,7 @@ Focus on being accurate rather than comprehensive."""
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
-            max_tokens=800
+            max_tokens=15000
         )
         
         return response.choices[0].message.content

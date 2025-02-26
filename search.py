@@ -26,7 +26,20 @@ class VectorStore:
             endpoint=SEARCH_SERVICE_ENDPOINT,
             credential=self.credential
         )
+        try:
+         if self.index_name in list(self.index_client.list_index_names()):
+            print(f"Debug - Connecting to existing index: {self.index_name}")
+            self.search_client = SearchClient(
+                endpoint=SEARCH_SERVICE_ENDPOINT,
+                credential=self.credential,
+                index_name=self.index_name
+            )
+         else:
+            self.search_client = None
+        except Exception as e:
+         print(f"Error checking index: {str(e)}")
         self.search_client = None
+    
 
     async def create_index(self):
         try:
@@ -180,10 +193,11 @@ class VectorStore:
             
             results = self.search_client.search(
                 search_text=None,
-                vectors=[{
-                    'value': query_vector,
+                 vector_queries=[{
+                    'vector': query_vector,
                     'fields': 'content_vector',
-                    'k': top_k
+                    'k': top_k,
+                    'kind': 'vector'
                 }],
                 select=select_fields
             )
@@ -192,3 +206,15 @@ class VectorStore:
         except Exception as e:
             print(f"Error performing search: {str(e)}")
             raise
+    async def connect_to_index(self):
+     try:
+        self.search_client = SearchClient(
+            endpoint=SEARCH_SERVICE_ENDPOINT,
+            credential=self.credential,
+            index_name=self.index_name
+        )
+        print(f"Debug - Connected to existing index: {self.index_name}")
+        return True
+     except Exception as e:
+        print(f"Error connecting to index: {str(e)}")
+        raise    
